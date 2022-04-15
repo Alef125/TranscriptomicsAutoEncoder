@@ -24,6 +24,7 @@ class GPRLayer(nn.Module):
         :param device: cpu, gpu
         :param dtype: e.g.: torch.float
         """
+        factory_kwargs = {'device': device, 'dtype': dtype}
         super(GPRLayer, self).__init__()
         self.input_dim = connections_matrix.shape[1]
         self.output_dim = connections_matrix.shape[0]
@@ -31,11 +32,10 @@ class GPRLayer(nn.Module):
                                               device=device,
                                               dtype=torch.float,
                                               requires_grad=False)
-        factory_kwargs = {'device': device, 'dtype': dtype}
         self._weights = Parameter(torch.empty((self.output_dim, self.input_dim), **factory_kwargs))
         self.bias = Parameter(torch.empty(self.output_dim, **factory_kwargs))
         self.reset_parameters()
-        self.masked_weights = self._weights * self._connections_mask
+        # self.masked_weights = torch.mul(self._weights, self._connections_mask)  # Elementwise Multiplication
 
     def reset_parameters(self) -> None:
         """
@@ -49,7 +49,12 @@ class GPRLayer(nn.Module):
         init.uniform_(self.bias, -bound, bound)
 
     def forward(self, _input: Tensor) -> Tensor:
-        return F.linear(_input, self.masked_weights, self.bias)
+        return F.linear(input=_input, weight=self._weights * self._connections_mask, bias=self.bias)
+
+    def extra_repr(self) -> str:
+        return 'in_features={}, out_features={}, bias={}'.format(
+            self.input_dim, self.output_dim, self.bias is not None
+        )
 
 
 class FixedLayer(nn.Module):
@@ -58,13 +63,18 @@ class FixedLayer(nn.Module):
                  bias: np.ndarray,
                  device=None):
         super(FixedLayer, self).__init__()
-        # self.input_dim = weights.shape[1]
-        # self.output_dim = weights.shape[0]
+        self.input_dim = weights.shape[1]
+        self.output_dim = weights.shape[0]
         self.weight = torch.tensor(data=weights, dtype=torch.float, device=device, requires_grad=False)
         self.bias = torch.tensor(data=bias, dtype=torch.float, device=device, requires_grad=False)
 
     def forward(self, _input: Tensor) -> Tensor:
-        return F.linear(_input, self.weight, self.bias)
+        return F.linear(input=_input, weight=self.weight, bias=self.bias)
+
+    def extra_repr(self) -> str:
+        return 'in_features={}, out_features={}, bias={}'.format(
+            self.input_dim, self.output_dim, self.bias is not None
+        )
 # #####################################################################
 
 
@@ -76,8 +86,8 @@ class BioAE(nn.Module):
                  stoic_bias: np.ndarray):
         """
         :param gpr_info: A GPRMapParser object to make desired GPRLayers
-        :param stoic_weights:
-        :param stoic_bias:
+        :param stoic_weights: Fixed weight matrix (A=S.diag(u-l)) for the Steady State layer; in At+b=0
+        :param stoic_bias: Fixed bias vector (b=Sl) for the Steady State layer; in At+b=0
         """
         super(BioAE, self).__init__()
         genes_to_complexes_connection_matrix = gpr_info.make_genes_to_complexes_connection_matrix()
@@ -87,7 +97,7 @@ class BioAE(nn.Module):
             GPRLayer(connections_matrix=genes_to_complexes_connection_matrix),  # Genes to Cmps
             nn.ReLU(),
             GPRLayer(connections_matrix=complexes_to_reactions_connection_matrix),  # Cmps to gene_Reactions
-            nn.ReLU(),
+            nn.ReLU()
         )
         # ###################### Decoder ########################
         self.decoder = nn.Sequential(
