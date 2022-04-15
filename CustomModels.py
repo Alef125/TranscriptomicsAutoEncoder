@@ -15,6 +15,11 @@ from GPR_ConnectionsBuilder import GPRMapParser
 
 # ######################### Custom Layers #############################
 class GPRLayer(nn.Module):
+    """
+    This module, provides a masked linear layer, i.e., output = (weight * mask) @ input + bias.
+    The mask defines the connection pattern between input and output nodes,
+        and is used for inducing GPR rules on the meaningful nodes of genes, complexes, and reactions.
+    """
     def __init__(self,
                  connections_matrix: np.ndarray,
                  device=None,
@@ -58,10 +63,19 @@ class GPRLayer(nn.Module):
 
 
 class FixedLayer(nn.Module):
+    """
+    This module, provides a linear layer with pre-defined weights and biases.
+    This layer is primarily used for the Sv=At+b layer.
+    """
     def __init__(self,
                  weights: np.ndarray,
                  bias: np.ndarray,
                  device=None):
+        """
+        :param weights: Fixes linear weights
+        :param bias: Fixed linear biases
+        :param device: cpu, gpu
+        """
         super(FixedLayer, self).__init__()
         self.input_dim = weights.shape[1]
         self.output_dim = weights.shape[0]
@@ -80,6 +94,10 @@ class FixedLayer(nn.Module):
 
 # #################################  Custom Model ####################################
 class BioAE(nn.Module):
+    """
+    This module is the complete Auto Encoder used for translating Transcriptomics data into Fluxomics data,
+        which satisfies the steady-state conditions (Sv=0).
+    """
     def __init__(self,
                  gpr_info: GPRMapParser,
                  stoic_weights: np.ndarray,
