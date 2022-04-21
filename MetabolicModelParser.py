@@ -134,6 +134,23 @@ class MetabolicModelParser:
                 writing_text = complex_text + '\t' + r_g_text + '\n'
                 file.writelines([writing_text])
 
+    def save_gene_free_reactions(self):
+        """
+        This method, finds the reactions which are not associated with any genes
+            (i.e., their gene_reaction_rule are blank)
+        Note: As saving is not necessary at the moment, we only print the list of these reactions
+            (also filepath_to_save argument is inactive)
+        :return: -
+        """
+        gene_free_reactions = []
+        for _reaction in self.metabolic_model.reactions:
+            if not _reaction.gene_reaction_rule:
+                gene_free_reactions.append(self.reactions_map[_reaction.id])
+        print(len(gene_free_reactions))
+        # with open(filepath_to_save, 'w') as file:
+        #     for gene_free_reaction in gene_free_reactions:
+        #         file.writelines([gene_free_reaction + '\n'])
+
     def fill_bounds(self) -> None:
         """
         This method, fills self.lower_bounds and self.upper_bounds dict.
@@ -233,5 +250,6 @@ class MetabolicModelParser:
 
 
 mmp = MetabolicModelParser(filepath_to_model="./Data/recon_2.2.xml")
-# mmp.save_maps(folder_to_save='.')
-# mmp.make_and_save_stoichiometric_data(folder_to_save='.', use_fva=False)
+# mmp.save_maps(folder_to_save='./Data')
+# mmp.save_gene_free_reactions()
+# mmp.make_and_save_stoichiometric_data(folder_to_save='./Data', use_fva=False)
