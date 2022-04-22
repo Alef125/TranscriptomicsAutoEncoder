@@ -85,7 +85,7 @@ class CustomTranscriptomicsDataset(Dataset):
         :param transform: -
         :param target_transform: -
         """
-        self.dataset_labels = pd.read_csv(annotations_file, names=['FileName', 'Label'])
+        self.dataset_labels = pd.read_csv(annotations_file)
         self.dataset_dir = dataset_dir
         self.transform = transform
         self.target_transform = target_transform
@@ -94,12 +94,12 @@ class CustomTranscriptomicsDataset(Dataset):
         return len(self.dataset_labels)
 
     def __getitem__(self, idx):
-        sample_filepath = os.path.join(self.dataset_dir, self.dataset_labels.iloc[idx, 0])
+        sample_filepath = os.path.join(self.dataset_dir, self.dataset_labels.iloc[idx]['FileName'])
         sample_df = pd.read_csv(sample_filepath)
         gene_ids = [int(gene_identifier[1:]) for gene_identifier in sample_df['GeneID']]  # Extracts *** from 'G***'
         expressions = sample_df[sample_df.columns[-1]]
         expressions_list = make_sorted_list_of_expressions(expressions_dict=dict(zip(gene_ids, expressions)))
-        label = self.dataset_labels.iloc[idx, 1]  # Cancer Type
+        label = self.dataset_labels.iloc[idx]['Label']  # Cancer Type
         if self.transform:
             expressions_list = self.transform(expressions_list)
         if self.target_transform:
