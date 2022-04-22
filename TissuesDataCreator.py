@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import numpy as np
 import warnings
+import os
 
 """
 hgnc_complete_set.json 
@@ -246,6 +247,20 @@ def translate_and_map_genes(list_of_genes: list,
     return mapped_genes_identifiers
 
 
+def parse_cancer_type_dict(cancer_type_identifier_filepath: str) -> dict:
+    """
+    This function, reads cancer type identifier file and provides a corresponding dictionary
+    :param cancer_type_identifier_filepath: Filepath for cancer type identifier .txt file
+    :return: cancer_type_identifier
+    """
+    cancer_type_identifier = {}
+    with open(cancer_type_identifier_filepath, 'r') as file:
+        cancer_type_identifier_info = file.readlines()
+    for cancer_type_identifier_item in cancer_type_identifier_info:
+        sample_id, cancer_type = cancer_type_identifier_item[:-1].split('\t')
+        cancer_type_identifier[sample_id] = cancer_type
+    return cancer_type_identifier
+
 # gene_translator = GeneTranslator(gtf_filepath="./gencode.v38.annotation.gtf",
 #                                  source_key='gene_name', destination_key='hgnc_id')
 # gene_translator.save_translation_dict(filepath_to_save="./Data/gene_name_to_hgnc.json")
@@ -254,29 +269,72 @@ def translate_and_map_genes(list_of_genes: list,
 #                                  source_key='symbol', destination_key='hgnc_id')
 # gene_translator.save_translation_dict(filepath_to_save="./Data/gene_name_to_hgnc_2.json")
 
-data_path = "./RNA-Seq for The Cancer Genome Atlas/Normal Samples/GSM1697009_06_01_15_TCGA_24.normal_Rsubread_FPKM.txt"
-dataset = pd.read_csv(data_path, delimiter='\t')
-columns_keys = dataset.columns
-column_zero = dataset[columns_keys[0]]  # list of all genes
 
-mapped_genes = translate_and_map_genes(
-    list_of_genes=column_zero.to_list(),
-    filepath_to_translation_dict="./Data/gene_name_to_hgnc_2.json",
-    filepath_to_mapping_dict="./Data/Genes_Map.txt"
-)
+def organize_and_save_transcriptomics_data(transcriptomics_data_filepath: str,
+                                           samples_name: str,
+                                           filepath_to_translation_dict: str,
+                                           filepath_to_mapping_dict: str,
+                                           cancer_type_identifier_filepath: str,
+                                           base_saving_dir: str) -> None:
+    """
 
-mapped_genes_df = pd.DataFrame({'GeneID': mapped_genes})
+    :param transcriptomics_data_filepath: Filepath for the main Transcriptomics.txt file
+    :param samples_name: "Normal Samples" or "Tumor Samples"
+    :param filepath_to_translation_dict: Filepath for genes translation_dict.json (source_id --> destination_id)
+    :param filepath_to_mapping_dict: Filepath for Genes_Map.txt (destination_id --> gene_identifier)
+    :param cancer_type_identifier_filepath: Filepath for CancerType_Samples.txt
+    :param base_saving_dir: The folder to save organized samples (in /samples_name sub-folder) and annotations
+    :return: -
+    """
+    # ################## Loading Main Transcriptomics Data #####################
+    transcriptomics_data = pd.read_csv(transcriptomics_data_filepath, delimiter='\t')
+    columns_keys = transcriptomics_data.columns
+    # ######## Translating and Mapping Genes into the Desirable Format #######
+    column_zero = transcriptomics_data[columns_keys[0]]  # list of all genes
+    mapped_genes = translate_and_map_genes(
+        list_of_genes=column_zero.to_list(),
+        filepath_to_translation_dict=filepath_to_translation_dict,
+        filepath_to_mapping_dict=filepath_to_mapping_dict
+    )
+    mapped_genes_df = pd.DataFrame({'GeneID': mapped_genes})
+    # ############# Reading Cancer Types (as Labes) ##############
+    cancer_type_dict = parse_cancer_type_dict(
+        cancer_type_identifier_filepath=cancer_type_identifier_filepath
+    )
+    # ############ Separating and Saving Samples One by One ############
+    folder_to_save_samples = os.path.join(base_saving_dir, samples_name)
+    if not os.path.exists(folder_to_save_samples):
+        os.makedirs(folder_to_save_samples)
+    file_names = []
+    labels = []
+    for sample_id in columns_keys[1:]:
+        column_df = transcriptomics_data[sample_id]
+        sample_df = pd.concat([mapped_genes_df, column_df], axis=1)
+        pruned_sample_df = sample_df[sample_df['GeneID'].notna()]  # Ignoring surplus genes
+        # Note: pruned_sample_df is *NOT* sorted based on Gi identifiers
+        file_name = sample_id + '.csv'  # Can be .pkl
+        filepath_for_saving_sample = os.path.join(folder_to_save_samples, file_name)
+        pruned_sample_df.to_csv(filepath_for_saving_sample)  # better to set header=False and index=False
+        file_names.append(file_name)
+        labels.append(cancer_type_dict[sample_id])
+    # ####################### Saving Annotation File ########################
+    annotation_df = pd.DataFrame({'FileName': file_names, 'Label': labels})
+    annotation_filepath = os.path.join(base_saving_dir, samples_name + ' Annotation.csv')
+    annotation_df.to_csv(annotation_filepath)  # better to set header=False and index=False
+    # #################################################################################
 
-for column_key in columns_keys[1:]:
-    column_df = dataset[column_key]
-    partial_df = pd.concat([mapped_genes_df, column_df], axis=1)
-    partial_df = partial_df[partial_df['GeneID'].notna()]
-    print(partial_df)
+
+def main():
+    rna_data_folder = "./RNA-Seq for The Cancer Genome Atlas"
+    data_path = os.path.join(rna_data_folder, "Normal Samples/GSM1697009_06_01_15_TCGA_24.normal_Rsubread_FPKM.txt")
+    cancer_types_filepath = os.path.join(rna_data_folder, "GSE62944_06_01_15_TCGA_24_Normal_CancerType_Samples.txt")
+    organize_and_save_transcriptomics_data(transcriptomics_data_filepath=data_path,
+                                           samples_name="Normal Samples",
+                                           filepath_to_translation_dict="./Data/gene_name_to_hgnc_2.json",
+                                           filepath_to_mapping_dict="./Data/Genes_Map.txt",
+                                           cancer_type_identifier_filepath=cancer_types_filepath,
+                                           base_saving_dir="./Human Tumors Dataset")
 
 
-# labels_num = list(range(29, 33))
-# labels = ['T' + str(_label) for _label in labels_num]
-# data = {'file_name': [_label + '.pkl' for _label in labels], 'label': labels}
-# # Create DataFrame
-# df = pd.DataFrame(data)
-# df.to_csv("./Human_Tissues_Dataset/test_annotations.csv", header=False, index=False)
+if __name__ == "__main__":
+    main()
