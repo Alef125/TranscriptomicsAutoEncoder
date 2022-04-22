@@ -20,7 +20,7 @@ import torch
 # LAMBDA = 1000
 LEARNING_RATE = 1e-1  # -3
 WEIGHT_DECAY = 1e-8
-BATCH_SIZE = 4
+BATCH_SIZE = 32
 EPOCHS = 20
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f'Using {DEVICE} device')
@@ -109,10 +109,15 @@ def load_and_test_model(test_dataloader: DataLoader,
 
 
 def main():
+    # train_dataloader, test_dataloader = prepare_dataloaders(
+    #     dataset_dir="./Human_Tissues_Dataset/Tissues_data/GenesRegData.pkl",
+    #     train_annotations_filepath="./Human_Tissues_Dataset/train_annotations.csv",
+    #     test_annotations_filepath="./Human_Tissues_Dataset/test_annotations.csv")
     train_dataloader, test_dataloader = prepare_dataloaders(
-        dataset_dir="./Human_Tissues_Dataset/Tissues_data/GenesRegData.pkl",
-        train_annotations_filepath="./Human_Tissues_Dataset/train_annotations.csv",
-        test_annotations_filepath="./Human_Tissues_Dataset/test_annotations.csv")
+        dataset_dir="./Human Tumors Dataset/Normal Samples",
+        train_annotations_filepath="./Human Tumors Dataset/Normal Samples Annotation.csv",
+        test_annotations_filepath="./Human Tumors Dataset/Normal Samples Annotation.csv")
+    # ToDo: Separate test data from train data
     stoichiometric_data = Stoichiometry(a_matrix_filepath="Data/A.txt",
                                         b_vector_filepath="Data/b.txt")
     gpr_info = GPRMapParser(gpr_data_filepath="./Data/Cmp_Map.txt")
