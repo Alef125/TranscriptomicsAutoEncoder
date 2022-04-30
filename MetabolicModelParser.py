@@ -222,9 +222,13 @@ class MetabolicModelParser:
             self.override_bounds_with_fva()
             filepath_to_save_a = folder_to_save + "/A_fva.txt"
             filepath_to_save_b = folder_to_save + "/b_fva.txt"
+            filepath_to_save_l = folder_to_save + "/lb_fva.txt"
+            filepath_to_save_u = folder_to_save + "/ub_fva.txt"
         else:
             filepath_to_save_a = folder_to_save + "/A.txt"
             filepath_to_save_b = folder_to_save + "/b.txt"
+            filepath_to_save_l = folder_to_save + "/lb.txt"
+            filepath_to_save_u = folder_to_save + "/ub.txt"
         # #################################################
         all_metabolites_ids = self.metabolites_map.values()
         b_vector = dict(zip(all_metabolites_ids, [0]*len(all_metabolites_ids)))
@@ -240,13 +244,26 @@ class MetabolicModelParser:
                 a_text = _met_id + ',' + _rxn_id + ':\t' + str(_coeff * _diff_bound) + '\n'
                 a_info.append(a_text)
                 b_vector[_met_id] += _coeff * _lb
-        # ################ Saving ###################
+        # ################## Saving #####################
+        # A
         with open(filepath_to_save_a, 'w') as file:
             file.writelines(a_info)
+        # b
         with open(filepath_to_save_b, 'w') as file:
             for _met_id, _value in b_vector.items():
                 saving_text = _met_id + ':\t' + str(_value) + '\n'
                 file.writelines([saving_text])
+        # lb
+        with open(filepath_to_save_l, 'w') as file:
+            for _rxn_id, _value in self.lower_bounds.items():
+                saving_text = _rxn_id + ':\t' + str(_value) + '\n'
+                file.writelines([saving_text])
+        # ub
+        with open(filepath_to_save_u, 'w') as file:
+            for _rxn_id, _value in self.upper_bounds.items():
+                saving_text = _rxn_id + ':\t' + str(_value) + '\n'
+                file.writelines([saving_text])
+        # ########################################################
 
 
 mmp = MetabolicModelParser(filepath_to_model="./Data/recon_2.2.xml")
