@@ -139,7 +139,9 @@ class BioAE(nn.Module):
     def forward(self, x):
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
-        metabolites = self.steady_state_net(self.fill_reactions(encoded))
-        output = torch.cat((decoded, metabolites), dim=1)
+        filled_reactions = self.fill_reactions(encoded)
+        metabolites = self.steady_state_net(filled_reactions)
+        # output = torch.cat((decoded, metabolites), dim=1)
+        output = {'Decoded': decoded, 'Metabolites': metabolites, 'Full_Reactions': filled_reactions}
         return output
 # ##############################################################################
