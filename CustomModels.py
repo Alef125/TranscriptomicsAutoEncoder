@@ -97,6 +97,8 @@ class BioAE(nn.Module):
     """
     This module is the complete Auto Encoder used for translating Transcriptomics data into Fluxomics data,
         which satisfies the steady-state conditions (Sv=0).
+    Note: Because of the specific output format of forward (as a dict),
+          only use AESSLoss as this network's loss.
     """
     def __init__(self,
                  gpr_info: GPRMapParser,
@@ -143,5 +145,61 @@ class BioAE(nn.Module):
         metabolites = self.steady_state_net(filled_reactions)
         # output = torch.cat((decoded, metabolites), dim=1)
         output = {'Decoded': decoded, 'Metabolites': metabolites, 'Full_Reactions': filled_reactions}
+        return output
+# ##############################################################################
+
+
+# ###############################  Implicit Constraint Model ##################################
+class ImplicitBioAE(nn.Module):
+    """
+    This module is the Auto Encoder used for translating Transcriptomics data into Fluxomics data,
+        with implicit steady-state conditions (Sv=0).
+    Note: Because of the specific output format of forward (as a dict),
+          only use ImplicitAELoss as this network's loss.
+    """
+    def __init__(self,
+                 gpr_info: GPRMapParser,
+                 stoic_kernel_projector: np.ndarray):
+        """
+
+        :param gpr_info: A GPRMapParser object to make desired GPRLayers
+        :param stoic_kernel_projector: Fixed weight matrix (P = N.NT) for the Projection layer
+        """
+        super(ImplicitBioAE, self).__init__()
+        genes_to_complexes_connection_matrix = gpr_info.make_genes_to_complexes_connection_matrix()
+        complexes_to_reactions_connection_matrix = gpr_info.make_complexes_to_reactions_connection_matrix()
+        # ###############################################
+        num_g_reactions = gpr_info.get_num_g_reactions()
+        num_all_reactions = stoic_kernel_projector.shape[0]  # = stoic_kernel_projector.shape[1]
+        if num_all_reactions != gpr_info.get_num_all_reactions():
+            raise ValueError("Number of Reactions are not compatible in your GPR and Stoichiometry files.")
+        # ###################### Encoder ########################
+        self.encoder = nn.Sequential(
+            GPRLayer(connections_matrix=genes_to_complexes_connection_matrix),  # Genes to Cmps
+            nn.ReLU(),
+            GPRLayer(connections_matrix=complexes_to_reactions_connection_matrix),  # Complexes to Enzymes
+            nn.ReLU(),
+            nn.Linear(in_features=num_g_reactions, out_features=num_all_reactions)  # Enzymes to Full Reactions
+            # If using nn.Sigmoid(), use l+(u-l)x after it and if using nn.ReLU(), use x+l after it.
+        )
+        # ###################### Projection ########################
+        self.projector = FixedLayer(weights=stoic_kernel_projector, bias=np.zeros(num_all_reactions))
+        # ###################### Decoder ########################
+        self.decoder = nn.Sequential(
+            nn.Linear(in_features=num_all_reactions, out_features=num_g_reactions),  # Full Reactions to Enzymes
+            nn.ReLU(),
+            GPRLayer(connections_matrix=complexes_to_reactions_connection_matrix.transpose()),  # Enzymes to Complexes
+            nn.ReLU(),
+            GPRLayer(connections_matrix=genes_to_complexes_connection_matrix.transpose()),  # Complexes to Genes
+            nn.ReLU()
+        )
+        # ###############################################
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        projected_reactions = self.projector(encoded)
+        decoded = self.decoder(projected_reactions)
+        # output = torch.cat((decoded, projected), dim=1)
+        output = {'Decoded': decoded, 'Projected_Reactions': projected_reactions}
         return output
 # ##############################################################################
