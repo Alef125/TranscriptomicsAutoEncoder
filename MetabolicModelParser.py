@@ -7,8 +7,11 @@ and saves the following maps based on it:
 4. Genes_Map.txt, Reactions_Map.txt, Metabolites_Map.txt
 """
 
+import os
 import math
 import cobra
+import numpy as np
+from scipy.linalg import null_space
 
 M = 1000.0
 
@@ -64,6 +67,8 @@ class MetabolicModelParser:
         This method, loads the sbml model from self.filepath_to_model into the self.metabolic_model
         :return: -
         """
+        config = cobra.Configuration()
+        config.solver = "glpk"
         self.metabolic_model = cobra.io.read_sbml_model(self.filepath_to_model)
 
     def make_reactions_map(self) -> None:
@@ -220,19 +225,21 @@ class MetabolicModelParser:
         # ################# FVA Init #######################
         if use_fva:
             self.override_bounds_with_fva()
-            filepath_to_save_a = folder_to_save + "/A_fva.txt"
-            filepath_to_save_b = folder_to_save + "/b_fva.txt"
-            filepath_to_save_l = folder_to_save + "/lb_fva.txt"
-            filepath_to_save_u = folder_to_save + "/ub_fva.txt"
+            filepath_to_save_a = os.path.join(folder_to_save, "A_fva.txt")
+            filepath_to_save_b = os.path.join(folder_to_save, "b_fva.txt")
+            filepath_to_save_l = os.path.join(folder_to_save, "lb_fva.txt")
+            filepath_to_save_u = os.path.join(folder_to_save, "ub_fva.txt")
         else:
-            filepath_to_save_a = folder_to_save + "/A.txt"
-            filepath_to_save_b = folder_to_save + "/b.txt"
-            filepath_to_save_l = folder_to_save + "/lb.txt"
-            filepath_to_save_u = folder_to_save + "/ub.txt"
+            filepath_to_save_a = os.path.join(folder_to_save, "A.txt")
+            filepath_to_save_b = os.path.join(folder_to_save, "b.txt")
+            filepath_to_save_l = os.path.join(folder_to_save, "lb.txt")
+            filepath_to_save_u = os.path.join(folder_to_save, "ub.txt")
+        filepath_to_save_projector = os.path.join(folder_to_save, "projector.npy")
         # #################################################
         all_metabolites_ids = self.metabolites_map.values()
         b_vector = dict(zip(all_metabolites_ids, [0]*len(all_metabolites_ids)))
         a_info = []
+        s_matrix = np.zeros((len(all_metabolites_ids), len(self.reactions_map.keys())))
         for _reaction in self.metabolic_model.reactions:
             _rxn_id = self.reactions_map[_reaction.id]
             _lb = self.lower_bounds[_rxn_id]
@@ -244,6 +251,9 @@ class MetabolicModelParser:
                 a_text = _met_id + ',' + _rxn_id + ':\t' + str(_coeff * _diff_bound) + '\n'
                 a_info.append(a_text)
                 b_vector[_met_id] += _coeff * _lb
+                s_matrix[int(_met_id[1:]), int(_rxn_id[1:])] = _coeff  # Reading indexes from 'Mxxx' and 'Rxxx'
+        s_kernel = null_space(s_matrix)
+        kernel_projector = np.matmul(s_kernel, s_kernel.T)
         # ################## Saving #####################
         # A
         with open(filepath_to_save_a, 'w') as file:
@@ -263,6 +273,8 @@ class MetabolicModelParser:
             for _rxn_id, _value in self.upper_bounds.items():
                 saving_text = _rxn_id + ':\t' + str(_value) + '\n'
                 file.writelines([saving_text])
+        # kernel_projector
+        np.save(filepath_to_save_projector, kernel_projector)
         # ########################################################
 
 
