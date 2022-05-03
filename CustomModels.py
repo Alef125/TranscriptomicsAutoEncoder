@@ -89,6 +89,33 @@ class FixedLayer(nn.Module):
         return 'in_features={}, out_features={}, bias={}'.format(
             self.input_dim, self.output_dim, self.bias is not None
         )
+
+
+class DeadZoneLayer(nn.Module):
+    """
+    This module, provides an elementwise dead-zone.
+    This layer is primarily used for the l<=v<=u loss.
+    """
+    def __init__(self,
+                 lb: np.ndarray,
+                 ub: np.ndarray,
+                 device=None):
+        """
+        :param lb: Lower bounds
+        :param ub: Upper bounds
+        :param device: cpu, gpu
+        """
+        super(DeadZoneLayer, self).__init__()
+        self.lb = torch.tensor(data=lb, dtype=torch.float, device=device, requires_grad=False)
+        self.ub = torch.tensor(data=ub, dtype=torch.float, device=device, requires_grad=False)
+
+    def forward(self, _input: Tensor) -> Tensor:
+        return F.relu(_input - self.ub) + F.relu(self.lb - _input)
+
+    def extra_repr(self) -> str:
+        return 'in_features={}'.format(
+            len(self.lb)
+        )
 # #####################################################################
 
 
@@ -159,11 +186,15 @@ class ImplicitBioAE(nn.Module):
     """
     def __init__(self,
                  gpr_info: GPRMapParser,
-                 stoic_kernel_projector: np.ndarray):
+                 stoic_kernel_projector: np.ndarray,
+                 lb: np.ndarray,
+                 ub: np.ndarray):
         """
 
         :param gpr_info: A GPRMapParser object to make desired GPRLayers
         :param stoic_kernel_projector: Fixed weight matrix (P = N.NT) for the Projection layer
+        :param lb: Lower bounds, to make dead zone layer
+        :param ub: Lower bounds, to make dead zone layer
         """
         super(ImplicitBioAE, self).__init__()
         genes_to_complexes_connection_matrix = gpr_info.make_genes_to_complexes_connection_matrix()
@@ -184,6 +215,7 @@ class ImplicitBioAE(nn.Module):
         )
         # ###################### Projection ########################
         self.projector = FixedLayer(weights=stoic_kernel_projector, bias=np.zeros(num_all_reactions))
+        self.dead_zone_layer = DeadZoneLayer(lb=lb, ub=ub)
         # ###################### Decoder ########################
         self.decoder = nn.Sequential(
             nn.Linear(in_features=num_all_reactions, out_features=num_g_reactions),  # Full Reactions to Enzymes
@@ -198,8 +230,11 @@ class ImplicitBioAE(nn.Module):
     def forward(self, x):
         encoded = self.encoder(x)
         projected_reactions = self.projector(encoded)
+        dead_zone_bounds = self.dead_zone_layer(projected_reactions)
         decoded = self.decoder(projected_reactions)
         # output = torch.cat((decoded, projected), dim=1)
-        output = {'Decoded': decoded, 'Projected_Reactions': projected_reactions}
+        output = {'Decoded': decoded,
+                  'Projected_Reactions': projected_reactions,
+                  'DeadZone_Bounds': dead_zone_bounds}
         return output
 # ##############################################################################

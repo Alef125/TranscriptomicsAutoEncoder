@@ -1,5 +1,5 @@
 """
-# ToDo: Change the name of this script! (to sth like BioDataParser)
+# Note: Better to change the name of this script! (to sth like BioDataParser)
 This script, provides:
     1. A class for getting desired connections matrices from the Cmp_Map (GPRMapParser)
     2. A class for parsing and keeping the stoichiometric information (Stoichiometry)
@@ -109,18 +109,31 @@ class GPRMapParser:
 class Stoichiometry:
     def __init__(self,
                  a_matrix_filepath: str,
-                 b_vector_filepath: str) -> None:
+                 b_vector_filepath: str,
+                 lb_filepath: str,
+                 ub_filepath: str,
+                 projection_matrix_filepath: str) -> None:
         """
         Stoichiometric Data keeper
         :param a_matrix_filepath: Filepath to the matrix A information
         :param b_vector_filepath: Filepath to the vector b information
+        :param lb_filepath: Filepath to the lb information
+        :param ub_filepath: Filepath to the ub information
+        :param projection_matrix_filepath: Filepath to the projection_matrix.npy
         """
         self.a_matrix_filepath = a_matrix_filepath
         self.b_vector_filepath = b_vector_filepath
+        self.lb_filepath = lb_filepath
+        self.ub_filepath = ub_filepath
         self.a_weights = np.zeros((NUM_METs, NUM_RXNs))  # A matrix
         self.b_weights = None
+        self.lb = None
+        self.ub = None
         self.parse_a_weights()
         self.parse_b_vector()
+        self.parse_lb()
+        self.parse_ub()
+        self.projection_matrix = np.load(projection_matrix_filepath)
 
     def parse_a_weights(self) -> None:
         """
@@ -150,6 +163,32 @@ class Stoichiometry:
                 b_weights.append(float(b_line_txt[1]))
         self.b_weights = np.array(b_weights)
 
+    def parse_lb(self):
+        """
+        This method, reads ub from self.lb_filepath, and fills the self lb
+        :return: -
+        """
+        lb = []
+        with open(self.lb_filepath, 'r') as f:
+            lb_data = f.readlines()
+            for lb_line in lb_data:
+                lb_line_txt = lb_line[:-1].split(':\t')
+                lb.append(float(lb_line_txt[1]))
+        self.lb = np.array(lb)
+
+    def parse_ub(self):
+        """
+        This method, reads ub from self.ub_filepath, and fills the self.ub
+        :return: -
+        """
+        ub = []
+        with open(self.ub_filepath, 'r') as f:
+            ub_data = f.readlines()
+            for ub_line in ub_data:
+                ub_line_txt = ub_line[:-1].split(':\t')
+                ub.append(float(ub_line_txt[1]))
+        self.ub = np.array(ub)
+
     def get_a_matrix(self) -> np.ndarray:
         """
         Matrix A getter
@@ -163,3 +202,24 @@ class Stoichiometry:
         :return: self.b_weights
         """
         return self.b_weights
+
+    def get_lb(self) -> np.ndarray:
+        """
+        Vector lb getter
+        :return: self.lb
+        """
+        return self.lb
+
+    def get_ub(self) -> np.ndarray:
+        """
+        Vector ub getter
+        :return: self.ub
+        """
+        return self.ub
+
+    def get_projector(self) -> np.ndarray:
+        """
+        Projection matrix getter
+        :return: self.projection_matrix
+        """
+        return self.projection_matrix

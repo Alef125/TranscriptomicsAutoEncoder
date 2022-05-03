@@ -6,8 +6,8 @@ import os.path
 import pandas as pd
 from BioNNDatasets import CustomTranscriptomicsDataset
 from GPR_ConnectionsBuilder import GPRMapParser, Stoichiometry
-from CustomModels import BioAE
-from BioAE_Loss import AESSLoss
+from CustomModels import ImplicitBioAE  # , BioAE
+from BioAE_Loss import ImplicitAELoss  # , AESSLoss
 from NN_Learning import train, test
 from torch.utils.data import DataLoader, ConcatDataset
 import torch
@@ -58,19 +58,27 @@ def make_and_save_model(train_dataloader: DataLoader,
     This method, handle the training of the model and saving it
     :param train_dataloader: A DataLoader containing train dataset
     :param test_dataloader: A DataLoader containing test dataset
-    :param stoichiometric_data: A Stoichiometry object denoting the A and b data
+    :param stoichiometric_data: A Stoichiometry object denoting the A and b data and the projection matrix
     :param gpr_info: A GPRMapParser object containing GPR information
     :param model_saving_filepath: The pathway to save the model.pth
     :return: -
     """
-    stoic_weights = stoichiometric_data.get_a_matrix()
-    stoic_bias = stoichiometric_data.get_b_vector()
-    model = BioAE(gpr_info=gpr_info,
-                  stoic_weights=stoic_weights,
-                  stoic_bias=stoic_bias).to(DEVICE)
+    # stoic_weights = stoichiometric_data.get_a_matrix()
+    # stoic_bias = stoichiometric_data.get_b_vector()
+    # model = BioAE(gpr_info=gpr_info,
+    #               stoic_weights=stoic_weights,
+    #               stoic_bias=stoic_bias).to(DEVICE)
+    stoic_projector = stoichiometric_data.get_projector()
+    lb = stoichiometric_data.get_lb()
+    ub = stoichiometric_data.get_ub()
+    model = ImplicitBioAE(gpr_info=gpr_info,
+                          stoic_kernel_projector=stoic_projector,
+                          lb=lb,
+                          ub=ub).to(DEVICE)
     print(model)
 
-    loss_fn = AESSLoss()  # nn.L1Loss()
+    # loss_fn = AESSLoss()  # nn.L1Loss()
+    loss_fn = ImplicitAELoss()
     optimizer = torch.optim.Adam(model.parameters(),
                                  lr=LEARNING_RATE,
                                  weight_decay=WEIGHT_DECAY)
@@ -94,18 +102,25 @@ def load_and_test_model(test_dataloader: DataLoader,
     """
     This method, loads a trained model and evaluates it on test date
     :param test_dataloader: A DataLoader containing test dataset
-    :param stoichiometric_data: A Stoichiometry object denoting the A and b data
+    :param stoichiometric_data: A Stoichiometry object denoting the A and b data and the projection matrix
     :param gpr_info: A GPRMapParser object containing GPR information
     :param saved_model_filepath: The pathway where the model.pth is saved
     :param folder_to_save_predictions: The folder path to save t-fluxes predictions
     :param filepath_to_save_annotation: The filepath to save predictions annotation .csv file
     :return: -
     """
-    stoic_weights = stoichiometric_data.get_a_matrix()
-    stoic_bias = stoichiometric_data.get_b_vector()
-    model = BioAE(gpr_info=gpr_info,
-                  stoic_weights=stoic_weights,
-                  stoic_bias=stoic_bias)
+    # stoic_weights = stoichiometric_data.get_a_matrix()
+    # stoic_bias = stoichiometric_data.get_b_vector()
+    # model = BioAE(gpr_info=gpr_info,
+    #               stoic_weights=stoic_weights,
+    #               stoic_bias=stoic_bias)
+    stoic_projector = stoichiometric_data.get_projector()
+    lb = stoichiometric_data.get_lb()
+    ub = stoichiometric_data.get_ub()
+    model = ImplicitBioAE(gpr_info=gpr_info,
+                          stoic_kernel_projector=stoic_projector,
+                          lb=lb,
+                          ub=ub).to(DEVICE)
     model.load_state_dict(torch.load(saved_model_filepath))
     model.eval()
     reactions_identifiers = None
@@ -119,22 +134,26 @@ def load_and_test_model(test_dataloader: DataLoader,
             x = x.to(DEVICE)
             x = x.float()
             network_output = model(x)
-            # print(f'Predicted: "{network_output}"')
-            t_reactions_predictions = network_output['Full_Reactions'].numpy()  # len = BATCH_SIZE
+            # t_reactions_predictions = network_output['Full_Reactions'].numpy()  #   # For BioAE
+            flux_predictions = network_output['Projected_Reactions'].numpy()  # For ImplicitBioAE
             if not reactions_identifiers:
-                num_reactions = len(t_reactions_predictions[0])
+                # num_reactions = len(t_reactions_predictions[0])  # For BioAE
+                num_reactions = len(flux_predictions[0])  # For ImplicitBioAE
                 reactions_identifiers = ['R' + str(i) for i in range(num_reactions)]
             # ########## Saving predictions one by one #########
-            for batch in range(BATCH_SIZE):
-                t_reactions_prediction = t_reactions_predictions[batch]
+            for batch in range(len(x)):  # len(x) = BATCH_SIZE else for the last batch
+                # t_reactions_prediction = t_reactions_predictions[batch]  # For BioAE
+                flux_prediction = flux_predictions[batch]  # For ImplicitBioAE
                 # prediction_dict = dict(zip(reactions_identifiers, reactions_prediction))
                 cancer_type = cancer_types[batch]
                 if cancer_type in samples_stat.keys():
                     samples_stat[cancer_type] += 1
                 else:
                     samples_stat[cancer_type] = 0
-                sample_t_fluxome_df = pd.DataFrame({'ReactionID': reactions_identifiers,
-                                                    't': t_reactions_prediction})
+                # sample_t_fluxome_df = pd.DataFrame({'ReactionID': reactions_identifiers,
+                #                                     't': t_reactions_prediction})  # For BioAE
+                sample_fluxome_df = pd.DataFrame({'ReactionID': reactions_identifiers,
+                                                  'Flux': flux_prediction})  # For ImplicitBioAE
                 """
                 Note: To have access to samples names (e.g. TCGA-06-0675-11A-32R-A36H-07),
                       we should define their labels in the Annotation.csv (in the TissuesDataCreator.py file)
@@ -143,7 +162,8 @@ def load_and_test_model(test_dataloader: DataLoader,
                 """
                 sample_filename = cancer_type + '_' + str(samples_stat[cancer_type]) + '.csv'
                 sample_filepath = os.path.join(folder_to_save_predictions, sample_filename)
-                sample_t_fluxome_df.to_csv(sample_filepath)
+                # sample_t_fluxome_df.to_csv(sample_filepath)
+                sample_fluxome_df.to_csv(sample_filepath)
                 all_filenames.append(sample_filename)
                 all_labels.append(cancer_type)
     annotation_df = pd.DataFrame({'FileName': all_filenames, 'Label': all_labels})
@@ -169,7 +189,10 @@ def main():
     test_dataloader = DataLoader(merged_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     stoichiometric_data = Stoichiometry(a_matrix_filepath="Data/A.txt",
-                                        b_vector_filepath="Data/b.txt")
+                                        b_vector_filepath="Data/b.txt",
+                                        lb_filepath="Data/lb.txt",
+                                        ub_filepath="Data/ub.txt",
+                                        projection_matrix_filepath="./Data/projector.npy")
     gpr_info = GPRMapParser(gpr_data_filepath="./Data/Cmp_Map.txt")
     make_and_save_model(train_dataloader=train_dataloader,
                         test_dataloader=test_dataloader,
@@ -180,13 +203,13 @@ def main():
                         stoichiometric_data=stoichiometric_data,
                         gpr_info=gpr_info,
                         saved_model_filepath="model.pth",
-                        folder_to_save_predictions="./Human Tumors Dataset/9264 Tumor Predicted tFluxes",
+                        folder_to_save_predictions="./Human Tumors Dataset/9264 Tumor Predicted Fluxes",
                         filepath_to_save_annotation="./Human Tumors Dataset/9264 Tumor Predictions Annotation.csv")
     load_and_test_model(test_dataloader=normal_dataloader,
                         stoichiometric_data=stoichiometric_data,
                         gpr_info=gpr_info,
                         saved_model_filepath="model.pth",
-                        folder_to_save_predictions="./Human Tumors Dataset/Normal Predicted tFluxes",
+                        folder_to_save_predictions="./Human Tumors Dataset/Normal Predicted Fluxes",
                         filepath_to_save_annotation="./Human Tumors Dataset/Normal Predictions Annotation.csv")
 # ############################################################################################
 
