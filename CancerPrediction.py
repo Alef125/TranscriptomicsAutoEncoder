@@ -30,40 +30,45 @@ def read_samples(annotation: pd.DataFrame, samples_folder: str) -> list:
         sample_filepath = os.path.join(samples_folder, sample_info['FileName'])
         sample_df = pd.read_csv(sample_filepath)
         # sample_t_predictions = sample_df['t']
-        sample_t_predictions = dict(zip(sample_df['ReactionID'], sample_df['t']))
+        ids_col_key = sample_df.columns[-2]  # 'GeneID' or 'ReactionID'
+        values_col_keu = sample_df.columns[-1]  # sample_id, 'Flux', or 't'
+        sample_t_predictions = dict(
+            zip(sample_df[ids_col_key],
+                sample_df[values_col_keu])
+        )
         all_samples.append(sample_t_predictions)
     return all_samples
 
 
-def load_data(tumor_prediction_annotation_filepath: str,
-              normal_prediction_annotation: str,
-              tumor_predictions_folder: str,
-              normal_predictions_folder: str,
+def load_data(tumor_annotation_filepath: str,
+              normal_annotation_filepath: str,
+              tumor_samples_folder: str,
+              normal_samples_folder: str,
               cancer_type: str):
     """
     This method, loads positive and negative cancer-specific samples from annotation_files
-    :param tumor_prediction_annotation_filepath: Annotation file of the tumor t predictions
-    :param normal_prediction_annotation: Annotation file of the normals t predictions
-    :param tumor_predictions_folder: The folder in which tumor t predictions exist
-    :param normal_predictions_folder: The folder in which normal t predictions exist
+    :param tumor_annotation_filepath: Annotation file of the tumor samples (or predictions)
+    :param normal_annotation_filepath: Annotation file of the normals samples (or predictions)
+    :param tumor_samples_folder: The folder in which tumor t predictions exist
+    :param normal_samples_folder: The folder in which normal t predictions exist
     :param cancer_type: The cancer type which is desired to fit a model in it
     :return: cancer_t_samples, cancer_labels
     """
     # ##################### Loading Annotation files ########################
-    tumor_prediction_annotation = pd.read_csv(tumor_prediction_annotation_filepath)
-    normal_prediction_annotation = pd.read_csv(normal_prediction_annotation)
+    tumor_annotation = pd.read_csv(tumor_annotation_filepath)
+    normal_annotation = pd.read_csv(normal_annotation_filepath)
     # ##################### Filtering Annotation files ########################
-    cancer_positive_annotation = tumor_prediction_annotation[tumor_prediction_annotation['Label'] == cancer_type]
-    cancer_negative_annotation = normal_prediction_annotation[normal_prediction_annotation['Label'] == cancer_type]
+    cancer_positive_annotation = tumor_annotation[tumor_annotation['Label'] == cancer_type]
+    cancer_negative_annotation = normal_annotation[normal_annotation['Label'] == cancer_type]
     # ####################### Loading samples ########################
     cancer_positive_samples = read_samples(annotation=cancer_positive_annotation,
-                                           samples_folder=tumor_predictions_folder)
+                                           samples_folder=tumor_samples_folder)
     cancer_negative_samples = read_samples(annotation=cancer_negative_annotation,
-                                           samples_folder=normal_predictions_folder)
+                                           samples_folder=normal_samples_folder)
     # ###################### Merging Sample #########################
-    cancer_t_samples = cancer_positive_samples + cancer_negative_samples
+    cancer_all_samples = cancer_positive_samples + cancer_negative_samples
     cancer_labels = [1] * len(cancer_positive_samples) + [0] * len(cancer_negative_samples)
-    return cancer_t_samples, cancer_labels
+    return cancer_all_samples, cancer_labels
 
 
 def translate_t_predictions_to_flux(t_samples: list, lb_filepath: str, ub_filepath: str) -> list:
@@ -107,18 +112,35 @@ def classify(features_data: list, labels: list):
     print("Prediction Accuracy: ", classifier.score(X=features_data, y=labels))
 
 
+def classify_transcriptome(cancer_type: str):
+    cancer_all_samples, cancer_labels = load_data(
+        tumor_annotation_filepath="./Human Tumors Dataset/9264 Tumor Samples Annotation.csv",
+        normal_annotation_filepath="./Human Tumors Dataset/Normal Samples Annotation.csv",
+        tumor_samples_folder="./Human Tumors Dataset/9264 Tumor Samples",
+        normal_samples_folder="./Human Tumors Dataset/Normal Samples",
+        cancer_type=cancer_type)
+    cancer_samples_list = [list(cancer_sample.values()) for cancer_sample in cancer_all_samples]
+    classify(features_data=cancer_samples_list, labels=cancer_labels)
+
+
+def classify_fluxome(cancer_type: str):
+    cancer_all_samples, cancer_labels = load_data(
+        tumor_annotation_filepath="./Human Tumors Dataset/9264 Tumor Predictions Annotation.csv",
+        normal_annotation_filepath="./Human Tumors Dataset/Normal Predictions Annotation.csv",
+        tumor_samples_folder="./Human Tumors Dataset/9264 Tumor Predicted Fluxes",
+        normal_samples_folder="./Human Tumors Dataset/Normal Predicted Fluxes",
+        cancer_type=cancer_type)
+    # cancer_all_samples = translate_t_predictions_to_flux(t_samples=cancer_t_samples,
+    #                                                      lb_filepath="./Data/lb_fva.txt",
+    #                                                      ub_filepath="./Data/ub_fva.txt")
+    cancer_samples_list = [list(cancer_sample.values()) for cancer_sample in cancer_all_samples]
+    classify(features_data=cancer_samples_list, labels=cancer_labels)
+
+
 def main():
-    # ToDo: Another classification (maybe another main) for direct transcriptome
-    cancer_t_samples, cancer_labels = load_data(
-        tumor_prediction_annotation_filepath="./Human Tumors Dataset/9264 Tumor Samples Annotation.csv",
-        normal_prediction_annotation="./Human Tumors Dataset/Normal Samples Annotation.csv",
-        tumor_predictions_folder="./Human Tumors Dataset/9264 Tumor Predicted tFluxes",
-        normal_predictions_folder="./Human Tumors Dataset/Normal Predicted tFluxes",
-        cancer_type='BRCA')
-    cancer_all_samples = translate_t_predictions_to_flux(t_samples=cancer_t_samples,
-                                                         lb_filepath="./Data/lb_fva.txt",
-                                                         ub_filepath="./Data/ub_fva.txt")
-    classify(features_data=cancer_all_samples, labels=cancer_labels)
+    cancer_type = 'BRCA'
+    classify_transcriptome(cancer_type=cancer_type)
+    classify_fluxome(cancer_type=cancer_type)
 
 
 if __name__ == "__main__":
